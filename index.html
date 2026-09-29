@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FPGA Tang Nano 9K - Sổ Tay & Lab Thực Hành Verilog Online</title>
+    <!-- Version timestamp for cache-busting -->
+    <link rel="stylesheet" href="static/css/styles.css?v=20260929_v2">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- MODAL ĐĂNG NHẬP BẮT BUỘC CHO SINH VIÊN -->
+    <div id="loginModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">⚡</div>
+                <h2>FPGA Tang Nano 9K</h2>
+                <p>Nền tảng Thực hành & Học Lập trình Verilog HDL Online</p>
+                <div style="font-size: 0.8rem; color: var(--accent-cyan); margin-top: 4px;">Trường Đại Học Mỏ - Địa Chất | Khoa Cơ - Điện</div>
+            </div>
+            <form id="loginForm" style="margin-top: 1rem;">
+                <div class="form-group">
+                    <label for="inputStudentName">Họ và Tên Sinh Viên <span style="color:red">*</span></label>
+                    <input type="text" id="inputStudentName" class="form-control" placeholder="Ví dụ: Nguyễn Văn A" required>
+                </div>
+                <div class="form-group">
+                    <label for="inputStudentId">Mã Sinh Viên <span style="color:red">*</span></label>
+                    <input type="text" id="inputStudentId" class="form-control" placeholder="Ví dụ: 21102024" required>
+                </div>
+                <div class="form-group">
+                    <label for="inputStudentClass">Lớp Khoá Học / Nhóm</label>
+                    <input type="text" id="inputStudentClass" class="form-control" placeholder="Ví dụ: DCCTĐT68">
+                </div>
+                <button type="submit" class="btn-primary" style="width:100%; padding:0.85rem; margin-top:0.5rem; font-size:1rem;">
+                    Bắt Đầu Học & Làm Bài →
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL KHÓA PIN ĐÁP ÁN GIẢNG VIÊN -->
+    <div id="teacherPinModal" class="modal-overlay" style="display:none;">
+        <div class="modal-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔑</div>
+                <h2>Trang Đáp Án Giảng Viên</h2>
+                <p>Nhập Mã PIN Giảng Viên để xem bộ đáp án chuẩn</p>
+            </div>
+            <form id="teacherPinForm" style="margin-top: 1rem;">
+                <div class="form-group">
+                    <label for="inputTeacherPin">Mã PIN Giảng Viên</label>
+                    <input type="password" id="inputTeacherPin" class="form-control" placeholder="Nhập mã PIN bí mật của Giảng viên..." required>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:1rem;">
+                    <button type="submit" class="btn-primary" style="flex:1;">Mở Khóa Đáp Án →</button>
+                    <button type="button" id="btnCancelTeacherPin" class="btn-filter" style="padding:0.75rem 1rem;">Hủy</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- APP HEADER & NAVIGATION BAR -->
+    <header class="app-header no-print">
+        <div class="brand-container">
+            <div class="brand-logo">FPGA</div>
+            <div class="brand-title">
+                <h1>Thực Hành Lập Trình Hệ Thống Nhúng</h1>
+                <p>Gowin Tang Nano 9K – Gowin EDA & Verilog HDL</p>
+            </div>
+        </div>
+
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-target="workspace">🧪 Phòng Thí Nghiệm Virtual IDE</button>
+            <button class="nav-tab" data-target="tutorials">📚 Lý Thuyết Tutorials (1, 2, 3)</button>
+            <button class="nav-tab" data-target="exercises">📝 Bảng Bài Tập Tổng Quan</button>
+            <button class="nav-tab" data-target="pinout">📌 Sơ Đồ Chân & CST Generator</button>
+            <button class="nav-tab" data-target="solutions" style="color:var(--accent-amber);">🔑 Đáp Án (Giảng Viên)</button>
+        </nav>
+
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button id="btnPrintPdfReport" class="btn-primary" style="background:linear-gradient(135deg, var(--accent-amber), #d97706); padding:0.45rem 0.9rem; font-size:0.8rem; width:auto;">
+                🖨️ Xuất Báo Cáo PDF
+            </button>
+            <div class="user-profile" id="userDisplay">
+                <div class="user-avatar">SV</div>
+                <div class="user-details">
+                    <strong id="studentNameDisplay">Sinh Viên</strong>
+                    <span id="studentIdDisplay">Đang tải...</span>
+                </div>
+                <button class="btn-logout" id="btnLogout" title="Thay đổi thông tin sinh viên">Đổi SV</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN APP LAYOUT CONTAINER -->
+    <main class="main-container no-print">
+
+        <!-- TAB 1: PHÒNG THÍ NGHIỆM VIRTUAL IDE (3-COLUMN WORKSPACE) -->
+        <section id="workspace" class="tab-content active">
+            <div class="workspace-layout">
+
+                <!-- Left Sidebar: Exercise Selector List (35 Labs) -->
+                <aside class="ws-sidebar">
+                    <div class="ws-sidebar-header">
+                        <span>Danh Sách 35 Bài Thực Hành</span>
+                        <span id="wsCompletedBadge" class="badge badge-easy">0/35</span>
+                    </div>
+                    <div class="ws-lab-list" id="wsLabListSidebar">
+                        <!-- Lab items rendered dynamically by app.js -->
+                    </div>
+                </aside>
+
+                <!-- Middle Column: Verilog Code Editor, Student Truth Table & AI Auto-Grader Feedback -->
+                <div class="editor-pane">
+                    <div class="pane-header">
+                        <div class="pane-title">
+                            <span>💻</span> <span id="wsLabTitle">Bài 01: Nút nhấn điều khiển LED</span>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button id="btnRunSim" class="btn-primary" style="padding:0.4rem 0.85rem; font-size:0.8rem;">▶ Chạy Mô Phỏng</button>
+                            <button id="btnSubmitLab" class="btn-primary" style="background:var(--accent-green); padding:0.4rem 0.85rem; font-size:0.8rem;">✓ Nộp Bài</button>
+                        </div>
+                    </div>
+
+                    <div style="padding: 0.85rem 1.1rem; background: #f8fafc; border-bottom: 1px solid var(--border-color); font-size: 0.85rem;">
+                        <span id="wsLabCategory" style="color:var(--accent-blue); font-weight:700;">Phần B: Mạch Logic Cơ Bản</span>
+                        <div id="wsLabDesc" style="color:var(--text-muted); margin-top:3px; line-height:1.5;">Description</div>
+                        <div id="wsBlockDiagram"></div>
+                    </div>
+
+                    <!-- Example Code Box (Ví Dụ Hướng Dẫn Reference) -->
+                    <div style="background:#f1f5f9; padding:0.85rem 1.1rem; border-bottom:1px solid var(--border-color);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <strong style="color:var(--accent-blue); font-size:0.8rem;">💡 VÍ DỤ CÚ PHÁP HƯỚNG DẪN THAM KHẢO:</strong>
+                            <button id="btnToggleExample" class="btn-filter" style="font-size:0.7rem; padding:2px 10px;">Ẩn/Hiện Ví Dụ</button>
+                        </div>
+                        <pre id="exampleCodeBlock" style="margin:0; display:block;"><code id="exampleCodeText" class="language-verilog">// Mã ví dụ tham khảo...</code></pre>
+                    </div>
+
+                    <!-- Student Fillable Truth Table / State Table -->
+                    <div style="background:#ffffff; padding:0.85rem 1.1rem; border-bottom:1px solid var(--border-color);">
+                        <div style="font-size:0.8rem; font-weight:700; color:var(--accent-amber); margin-bottom:6px;">
+                            📊 BẢNG CHÂN LÝ / BẢNG TRẠNG THÁI (Sinh Viên Điền Kết Quả):
+                        </div>
+                        <div id="wsFillableTruthTable">
+                            <!-- Rendered dynamically by app.js -->
+                        </div>
+                    </div>
+
+                    <!-- Verilog Code Editor Area (With Dynamic Keyword Syntax Highlighting) -->
+                    <div class="code-editor-wrapper">
+                        <pre class="code-highlight-bg" aria-hidden="true"><code id="verilogCodeHighlight"></code></pre>
+                        <textarea id="verilogCodeEditor" class="editor-textarea" spellcheck="false" placeholder="// VIẾT MÃ VERILOG CỦA BẠN TẠI ĐÂY..."></textarea>
+                    </div>
+
+
+                </div>
+
+                <!-- Right Column: Hardware Visualizer & Waveform GTKWave -->
+                <div class="board-pane">
+
+                    <!-- Interactive Tang Nano 9K Board Visualizer Card -->
+                    <div class="hardware-card">
+                        <div class="pane-title" style="margin-bottom: 0.75rem;">
+                            <span>🌐</span> Bàn Thí Nghiệm Ảo Tang Nano 9K
+                        </div>
+
+                        <div class="board-sim-view">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size:0.75rem; color:var(--accent-cyan); font-weight:700;">CHIP GOWIN GW1NR-LV9QN88PC6/I5</span>
+                                <div style="display:flex; gap:6px;">
+                                    <button id="btnStartClock" class="btn-filter" style="font-size:0.7rem;">▶ Xung Clock</button>
+                                    <button id="btnStopClock" class="btn-filter" style="font-size:0.7rem;">⏸ Tạm Dừng</button>
+                                </div>
+                            </div>
+
+                            <!-- User Controls (Switches / Push Buttons) -->
+                            <div style="margin-top:0.75rem;">
+                                <div style="font-size:0.75rem; color:var(--text-subtle); font-weight:600;">NGÕ VÀO (Công tắc / Nút nhấn):</div>
+                                <div class="sw-row" id="hwSwitchContainer">
+                                    <!-- Rendered dynamically -->
+                                </div>
+                            </div>
+
+                            <!-- Onboard LEDs -->
+                            <div style="margin-top:1rem;">
+                                <div style="font-size:0.75rem; color:var(--text-subtle); font-weight:600;">NGÕ RA (Dải 6 LED Onboard PIN 10, 11, 13, 14, 15, 16):</div>
+                                <div class="led-row" id="hwLedContainer">
+                                    <!-- Rendered dynamically -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- GTKWave Digital Waveform Viewer Card -->
+                    <div class="hardware-card">
+                        <div class="pane-title" style="margin-bottom: 0.5rem;">
+                            <span>📈</span> Mô Phỏng Dạng Sóng (GTKWave SVG View)
+                        </div>
+                        <div id="waveformSvgContainer">
+                            <!-- SVG waveform rendered dynamically by waveform.js -->
+                        </div>
+                    </div>
+
+                    <!-- Physical Constraint & Testbench Viewer -->
+                    <div class="hardware-card">
+                        <div class="pane-title" style="margin-bottom: 0.5rem;">
+                            <span>📋</span> File Physical Constraint (.cst) & Testbench (.v)
+                        </div>
+                        <div class="code-block-header">Phân Tích Logic RTL Viewer</div>
+                        <div id="wsAnalysisText" style="color:var(--text-muted); font-size:0.8rem; padding:6px; background:#050811;"></div>
+
+                        <div class="code-block-header">File Constraint (.cst)</div>
+                        <pre><code id="cstCodeView" class="language-verilog">// CST Pin Location</code></pre>
+
+                        <div class="code-block-header">File Testbench (.v)</div>
+                        <pre><code id="tbCodeView" class="language-verilog">// Testbench Verilog Code</code></pre>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: LÝ THUYẾT & TUTORIALS 1, 2, 3 -->
+        <section id="tutorials" class="tab-content">
+            <div class="tut-grid">
+                <aside class="tut-sidebar" id="tutNavContainer">
+                    <!-- Dynamic Nav Items generated by app.js -->
+                </aside>
+                <article class="tut-body" id="tutBodyContainer">
+                    <!-- Dynamic Tutorial Body generated by app.js -->
+                </article>
+            </div>
+        </section>
+
+        <!-- TAB 3: BẢNG BÀI TẬP TỔNG QUAN -->
+        <section id="exercises" class="tab-content">
+            <div class="filter-bar">
+                <div class="filter-group">
+                    <button class="btn-filter btn-filter-cat active" data-cat="all">Tất Cả Phân Nhóm</button>
+                    <button class="btn-filter btn-filter-cat" data-cat="combinational_basic">Phần B: Mạch Logic Cơ Bản</button>
+                    <button class="btn-filter btn-filter-cat" data-cat="combinational_advanced">Phần C: Mạch Tổ Hợp & Số Học</button>
+                    <button class="btn-filter btn-filter-cat" data-cat="sequential">Phần D: Mạch Tuần Tự</button>
+                    <button class="btn-filter btn-filter-cat" data-cat="fsm_advanced">Phần E: Ứng Dụng FPGA & FSM</button>
+                </div>
+            </div>
+
+            <div class="ex-cards-grid" id="exCardsGrid">
+                <!-- Lab cards rendered dynamically by app.js -->
+            </div>
+        </section>
+
+        <!-- TAB 4: TRA CỨU PINOUT & CST GENERATOR -->
+        <section id="pinout" class="tab-content">
+            <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.5rem;">
+                <h2 style="font-size: 1.25rem; color: #fff; margin-bottom: 1rem;">Sơ Đồ Chân Phần Cứng Kit FPGA Tang Nano 9K</h2>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Tên Tín Hiệu</th>
+                            <th>Vị Trí Chân (IO_LOC)</th>
+                            <th>Chuẩn Điện Áp (IO_TYPE)</th>
+                            <th>Cấu Hình Pull/Drive</th>
+                            <th>Mô Tả Chức Năng</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pinoutTableBody">
+                        <!-- Rendered by pins.js -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- TAB 5: TRANG ĐÁP ÁN GIẢNG VIÊN (TEACHER SOLUTIONS & STUDENT TRACKING DASHBOARD) -->
+        <section id="solutions" class="tab-content">
+            <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.5rem;">
+                
+                <!-- Sub-tab Navigation Header for Teacher -->
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid var(--accent-amber); padding-bottom:0.75rem; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <h2 style="font-size: 1.35rem; color: #fff;">🔑 TRANG GIẢNG VIÊN: QUẢN LÝ TIẾN TRÌNH & ĐÁP ÁN CHUẨN</h2>
+                        <p style="font-size: 0.85rem; color: var(--accent-cyan);">Giảng viên hướng dẫn: ThS. Nguyễn Tiến Sỹ | Khoa Cơ - Điện</p>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button id="btnTeacherSubTabSubmissions" class="btn-primary" style="font-size:0.8rem; padding:0.45rem 0.85rem; background:linear-gradient(135deg, #10b981, #059669);">
+                            📊 Bảng Tiến Trình Sinh Viên (Cloud Realtime)
+                        </button>
+                        <button id="btnTeacherSubTabSolutions" class="btn-primary" style="font-size:0.8rem; padding:0.45rem 0.85rem; background:#475569;">
+                            🔑 Bộ Đáp Án Chuẩn (35 Bài)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- SUB-TAB 1: LIVE CLOUD STUDENT SUBMISSIONS & AI GRADES -->
+                <div id="teacherSubmissionsView">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px; background:#0f172a; padding:10px 14px; border-radius:8px; border:1px solid #334155;">
+                        <div style="display:flex; gap:8px; align-items:center; flex:1; max-width:450px;">
+                            <input type="text" id="teacherSearchStudent" class="form-control" style="padding:0.45rem 0.75rem; font-size:0.85rem;" placeholder="🔍 Tìm kiếm Mã SV, Họ tên hoặc Lớp...">
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button id="btnRefreshSubmissions" class="btn-primary" style="font-size:0.8rem; padding:0.45rem 0.75rem;">🔄 Làm Mới Dữ Liệu Cloud</button>
+                            <button id="btnImportStudentJson" class="btn-primary" style="font-size:0.8rem; background:#0d9488; padding:0.45rem 0.75rem;">📥 Import File JSON Sinh Viên</button>
+                            <input type="file" id="inputJsonFile" accept=".json" style="display:none;">
+                        </div>
+                    </div>
+
+                    <div id="teacherStudentTableContainer">
+                        <!-- Table rendered dynamically by app.js -->
+                    </div>
+                </div>
+
+                <!-- SUB-TAB 2: REFERENCE SOLUTIONS -->
+                <div id="teacherSolutionsView" style="display:none;">
+                    <div id="teacherSolutionsList">
+                        <!-- Rendered dynamically by app.js -->
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL XEM CHI TIẾT BÀI LÀM CỦA SINH VIÊN -->
+    <div id="studentDetailModal" class="modal-overlay" style="display:none;">
+        <div class="modal-card" style="max-width:920px; text-align:left; max-height:88vh; overflow-y:auto; padding:1.5rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid var(--accent-blue); padding-bottom:0.75rem; margin-bottom:1rem;">
+                <div>
+                    <h3 id="modalStudentTitle" style="font-size:1.25rem; color:#fff; font-weight:700;">Chi Tiết Bài Làm Sinh Viên</h3>
+                    <p id="modalStudentSubTitle" style="font-size:0.85rem; color:var(--text-subtle); margin-top:2px;"></p>
+                </div>
+                <button id="btnCloseStudentModal" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:4px 12px; font-size:1.1rem; cursor:pointer; font-weight:bold;">&times; Đóng</button>
+            </div>
+            <div id="modalStudentContent">
+                <!-- Rendered dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- PRINTABLE PDF REPORT CONTAINER -->
+    <div id="pdfReportContainer" class="print-only">
+        <!-- Rendered dynamically by app.js when user clicks "Xuất Báo Cáo PDF" -->
+    </div>
+
+    <!-- JS SCRIPTS WITH CACHE-BUSTING TIMESTAMP -->
+    <script src="static/js/tutorials.js?v=20260929_v4"></script>
+    <script src="static/js/exercises.js?v=20260929_v4"></script>
+    <script src="static/js/pins.js?v=20260929_v4"></script>
+    <script src="static/js/simulator.js?v=20260929_v4"></script>
+    <script src="static/js/waveform.js?v=20260929_v4"></script>
+    <script src="static/js/ai_grader.js?v=20260929_v4"></script>
+    <script src="static/js/app.js?v=20260929_v4"></script>
+</body>
+</html>
