@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thực hành FPGA Tang Nano 9K - {{ ex.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/verilog/verilog.min.js"></script>
+</head>
+<body>
+    <div class="header">
+        <div class="user-info">
+            <span>Sinh viên: <b>{{ full_name }}</b> ({{ student_id }})</span>
+        </div>
+        <div class="nav-exercises">
+            {% for i in range(1, total_ex + 1) %}
+                <a href="/practice/{{ i }}" class="btn-nav {% if i == ex_id %}active{% endif %}">Bài {{ i }}</a>
+            {% endfor %}
+        </div>
+        <div class="actions">
+            <button onclick="exportPDF()" class="btn btn-export">Xuất báo cáo PDF</button>
+            <a href="/logout" class="btn btn-logout">Đăng xuất</a>
+        </div>
+    </div>
+
+    <div class="main-container" id="report-content">
+        <div class="report-header" style="display: none; text-align: center; margin-bottom: 20px;">
+            <h2>Báo Cáo Thực Hành FPGA Tang Nano 9K</h2>
+            <p><b>Họ và tên:</b> {{ full_name }} | <b>MSSV:</b> {{ student_id }}</p>
+            <h3>{{ ex.title }}</h3>
+            <hr>
+        </div>
+
+        <div class="workspace">
+            <div class="panel instructions">
+                <h3>Đề bài thực hành</h3>
+                <div class="desc-content">
+                    {{ ex.desc | safe }}
+                </div>
+                
+                <h4 style="margin-top: 20px;">Ghi chú / Trả lời câu hỏi:</h4>
+                <textarea id="notes" class="notes-area" placeholder="Nhập giải thích mã nguồn hoặc trả lời câu hỏi lý thuyết vào đây..."></textarea>
+            </div>
+            <div class="panel editor-panel">
+                <h3>Trình soạn thảo Verilog</h3>
+                <!-- data-ex-id is used by javascript -->
+                <textarea id="code-editor" data-ex-id="{{ ex_id }}">{{ ex.template }}</textarea>
+                
+                <div class="toolbar" data-html2canvas-ignore="true">
+                    <button onclick="simulateCode()" class="btn">Biên dịch & Mô phỏng</button>
+                    <button id="btn-waveform" onclick="openWaveform()" class="btn btn-export" style="display: none; margin-left: 10px;">Mở Waveform (GTKWave)</button>
+                </div>
+                <div class="console">
+                    <h4>Kết quả:</h4>
+                    <pre id="output-console">Chưa có kết quả.</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
