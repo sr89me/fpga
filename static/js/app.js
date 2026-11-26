@@ -72,6 +72,9 @@ document.addEventListener('DOMContentLoaded', () => {
     loadLabWorkspace(FPGA_EXERCISES[0]);
     initPdfReportExport();
     initCodeEditorHighlight();
+    initCloudConfigurationModal();
+    initTeacherCloudActions();
+    initStudentExportJson();
 
     // ----------------------------------------------------
     // Mandatory Login Modal Logic
@@ -622,7 +625,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ledHtml += `
                 <div style="display:flex; flex-direction:column; align-items:center;">
                     <div class="led-indicator" id="led_ind_${targetId}">0</div>
-                    <span style="font-size:0.7rem; color:var(--text-subtle); margin-top:4px;">${p.label}</span>
+                    <span style="font-size:0.7rem; color:var(--text-subtle); margin-top:4px; text-align:center; line-height:1.2;">LED${idx}<br>(P${p.pin})</span>
                 </div>
             `;
         });
@@ -674,47 +677,138 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----------------------------------------------------
     // Student Submission Workflow & Firebase Cloud Sync
     // ----------------------------------------------------
-    const FIREBASE_DB_URL = "https://fpga-nano9k-default-rtdb.firebaseio.com";
+    const DEFAULT_FIREBASE_DB_URL = "https://fpga-tangnano9k-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+    // Clean & normalize Firebase / Cloud REST URL
+    function cleanFirebaseUrl(url) {
+        if (!url) return '';
+        let u = String(url).trim();
+        if (!u.startsWith('http://') && !u.startsWith('https://')) {
+            u = 'https://' + u;
+        }
+        return u.replace(/\/+$/, '').replace(/\/\.json$/, '');
+    }
+
+    // Resolve current active Cloud DB URL
+    function getCloudDbUrl() {
+        // 1. URL parameter (?db=... or ?cloud=...)
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const queryUrl = params.get('db') || params.get('cloud');
+            if (queryUrl) {
+                const cleaned = cleanFirebaseUrl(queryUrl);
+                localStorage.setItem('fpga_cloud_db_url', cleaned);
+                return cleaned;
+            }
+        } catch (_) {}
+
+        // 2. Custom URL saved by Teacher
+        const saved = localStorage.getItem('fpga_cloud_db_url');
+        if (saved) return cleanFirebaseUrl(saved);
+
+        // 3. Built-in default
+        return cleanFirebaseUrl(DEFAULT_FIREBASE_DB_URL);
+    }
+
+    // Update UI status badge for Student
+    function updateCloudStatusBadge(status, text) {
+        const badge = document.getElementById('cloudStatusBadge');
+        if (!badge) return;
+
+        badge.className = 'badge';
+        if (status === 'connected') {
+            badge.classList.add('badge-easy');
+            badge.style.background = '#ecfdf5';
+            badge.style.color = '#047857';
+            badge.style.border = '1px solid #a7f3d0';
+            badge.textContent = text || '☁️ Cloud: Đã đồng bộ';
+        } else if (status === 'syncing') {
+            badge.classList.add('badge-medium');
+            badge.style.background = '#eff6ff';
+            badge.style.color = '#1d4ed8';
+            badge.style.border = '1px solid #bfdbfe';
+            badge.textContent = text || '⏳ Cloud: Đang lưu...';
+        } else if (status === 'error') {
+            badge.classList.add('badge-hard');
+            badge.style.background = '#fef2f2';
+            badge.style.color = '#b91c1c';
+            badge.style.border = '1px solid #fca5a5';
+            badge.textContent = text || '⚠️ Cloud: Chưa kết nối';
+        } else {
+            badge.classList.add('badge-medium');
+            badge.style.background = '#fffbeb';
+            badge.style.color = '#b45309';
+            badge.style.border = '1px solid #fde68a';
+            badge.textContent = text || '☁️ Cloud: Sẵn sàng';
+        }
+    }
 
     async function syncSubmissionToCloud(labId, currentCode, studentTt, grade) {
-        if (!state.student || !state.student.id) return;
+        if (!state.student || !state.student.id) {
+            return { success: false, error: 'Chưa đăng nhập sinh viên' };
+        }
+
+        const labObj = FPGA_EXERCISES.find(e => e.id === Number(labId)) || state.currentLab || { title: `Bài ${labId}` };
 
         const subObj = {
-            studentId: state.student.id,
-            studentName: state.student.name,
-            studentClass: state.student.class || 'N/A',
-            labId: labId,
-            labTitle: state.currentLab ? state.currentLab.title : `Bài ${labId}`,
-            code: currentCode,
-            truthTable: studentTt,
+            studentId: String(state.student.id).trim(),
+            studentName: String(state.student.name).trim(),
+            studentClass: String(state.student.class || 'N/A').trim(),
+            labId: Number(labId),
+            labTitle: labObj.title || `Bài ${labId}`,
+            code: currentCode || '',
+            truthTable: studentTt || {},
             notes: state.userNotesMap ? (state.userNotesMap[labId] || '') : '',
-            grade: grade,
+            grade: grade || null,
             submittedAt: new Date().toISOString()
         };
 
         // 1. Save to local storage for local backup / offline mode
-        let allLocal = JSON.parse(localStorage.getItem('fpga_all_submissions') || '{}');
-        if (!allLocal[state.student.id]) {
-            allLocal[state.student.id] = {
-                info: { id: state.student.id, name: state.student.name, class: state.student.class || 'N/A' },
-                labs: {}
-            };
+        try {
+            let allLocal = JSON.parse(localStorage.getItem('fpga_all_submissions') || '{}');
+            const sId = state.student.id;
+            if (!allLocal[sId]) {
+                allLocal[sId] = {
+                    info: { id: sId, name: state.student.name, class: state.student.class || 'N/A' },
+                    labs: {}
+                };
+            }
+            allLocal[sId].info.name = state.student.name;
+            allLocal[sId].info.class = state.student.class || 'N/A';
+            allLocal[sId].info.lastActive = new Date().toISOString();
+            allLocal[sId].labs[labId] = subObj;
+            localStorage.setItem('fpga_all_submissions', JSON.stringify(allLocal));
+        } catch (e) {
+            console.warn('Local storage write notice:', e);
         }
-        allLocal[state.student.id].info.name = state.student.name;
-        allLocal[state.student.id].info.class = state.student.class || 'N/A';
-        allLocal[state.student.id].info.lastActive = new Date().toISOString();
-        allLocal[state.student.id].labs[labId] = subObj;
-        localStorage.setItem('fpga_all_submissions', JSON.stringify(allLocal));
 
         // 2. Try pushing to Cloud Database REST API
+        const cloudUrl = getCloudDbUrl();
+        if (!cloudUrl) {
+            updateCloudStatusBadge('error', '⚠️ Chưa cấu hình Cloud');
+            return { success: false, error: 'Chưa cấu hình Cloud Database URL' };
+        }
+
+        updateCloudStatusBadge('syncing', '⏳ Đang lưu Cloud...');
+
         try {
-            await fetch(`${FIREBASE_DB_URL}/submissions/${state.student.id}/${labId}.json`, {
+            const sId = encodeURIComponent(state.student.id);
+            const lId = encodeURIComponent(labId);
+
+            const putResp = await fetch(`${cloudUrl}/submissions/${sId}/${lId}.json`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(subObj)
             });
 
-            await fetch(`${FIREBASE_DB_URL}/students/${state.student.id}.json`, {
+            if (!putResp.ok) {
+                const errText = `HTTP ${putResp.status} ${putResp.statusText || ''}`.trim();
+                updateCloudStatusBadge('error', `⚠️ Lỗi Cloud (${putResp.status})`);
+                return { success: false, error: errText, status: putResp.status };
+            }
+
+            // Also update student metadata
+            fetch(`${cloudUrl}/students/${sId}.json`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -723,14 +817,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     class: state.student.class || 'N/A',
                     lastActive: new Date().toISOString()
                 })
-            });
+            }).catch(() => {});
+
+            updateCloudStatusBadge('connected', '☁️ Đã đồng bộ Cloud');
+            return { success: true };
         } catch (err) {
-            console.warn('Firebase sync notice:', err);
+            console.warn('Cloud sync error:', err);
+            updateCloudStatusBadge('error', '⚠️ Lỗi kết nối Cloud');
+            return { success: false, error: err.message || 'Lỗi mạng hoặc CORS' };
         }
     }
 
     async function syncAllStudentProgressToCloud() {
         if (!state.student || !state.student.id) return;
+
+        const cloudUrl = getCloudDbUrl();
+        if (!cloudUrl) {
+            updateCloudStatusBadge('error', '⚠️ Chưa cấu hình Cloud');
+            return;
+        }
 
         if (!state.userGradesMap) state.userGradesMap = {};
 
@@ -739,6 +844,36 @@ document.addEventListener('DOMContentLoaded', () => {
             ...Object.keys(state.userCodeMap || {}).map(Number)
         ])).filter(Boolean);
 
+        const sId = encodeURIComponent(state.student.id);
+
+        if (labIdsToSync.length === 0) {
+            try {
+                const resp = await fetch(`${cloudUrl}/students/${sId}.json`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: state.student.id,
+                        name: state.student.name,
+                        class: state.student.class || 'N/A',
+                        lastActive: new Date().toISOString(),
+                        completedCount: 0
+                    })
+                });
+                if (resp.ok) {
+                    updateCloudStatusBadge('connected', '☁️ Đã kết nối Cloud');
+                } else {
+                    updateCloudStatusBadge('error', `⚠️ Cloud lỗi (${resp.status})`);
+                }
+            } catch (_) {
+                updateCloudStatusBadge('error', '⚠️ Lỗi mạng Cloud');
+            }
+            return;
+        }
+
+        updateCloudStatusBadge('syncing', `⏳ Đang gửi ${labIdsToSync.length} bài...`);
+
+        // Batch all labs into a single dictionary for 1-request lightning sync
+        const batchPayload = {};
         for (const lId of labIdsToSync) {
             const labObj = FPGA_EXERCISES.find(e => e.id === lId);
             if (!labObj) continue;
@@ -753,26 +888,50 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('fpga_user_grades', JSON.stringify(state.userGradesMap));
             }
 
-            await syncSubmissionToCloud(lId, code, tt, grade);
+            batchPayload[lId] = {
+                studentId: state.student.id,
+                studentName: state.student.name,
+                studentClass: state.student.class || 'N/A',
+                labId: lId,
+                labTitle: labObj.title,
+                code: code,
+                truthTable: tt,
+                notes: state.userNotesMap ? (state.userNotesMap[lId] || '') : '',
+                grade: grade,
+                submittedAt: new Date().toISOString()
+            };
         }
 
         try {
-            await fetch(`${FIREBASE_DB_URL}/students/${state.student.id}.json`, {
+            const patchResp = await fetch(`${cloudUrl}/submissions/${sId}.json`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: state.student.id,
-                    name: state.student.name,
-                    class: state.student.class || 'N/A',
-                    lastActive: new Date().toISOString(),
-                    completedCount: state.completedLabs ? state.completedLabs.length : 0
-                })
+                body: JSON.stringify(batchPayload)
             });
+
+            if (patchResp.ok) {
+                await fetch(`${cloudUrl}/students/${sId}.json`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: state.student.id,
+                        name: state.student.name,
+                        class: state.student.class || 'N/A',
+                        lastActive: new Date().toISOString(),
+                        completedCount: state.completedLabs ? state.completedLabs.length : 0
+                    })
+                });
+                updateCloudStatusBadge('connected', `☁️ Đã đồng bộ ${labIdsToSync.length} bài`);
+            } else {
+                updateCloudStatusBadge('error', `⚠️ Lỗi Cloud (${patchResp.status})`);
+            }
         } catch (err) {
-            console.warn('Student batch metadata sync notice:', err);
+            console.warn('Batch cloud sync error:', err);
+            updateCloudStatusBadge('error', '⚠️ Lỗi mạng Cloud');
         }
     }
 
+    // Submit Lab Action
     document.getElementById('btnSubmitLab')?.addEventListener('click', async () => {
         if (!state.currentLab) return;
 
@@ -792,10 +951,15 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('fpga_completed', JSON.stringify(state.completedLabs));
         }
 
-        // Sync to cloud database
-        await syncSubmissionToCloud(state.currentLab.id, currentCode, studentTt, grade);
+        // Sync to cloud database with honest error checking
+        const syncRes = await syncSubmissionToCloud(state.currentLab.id, currentCode, studentTt, grade);
 
-        alert(`🎉 NỘP BÀI THÀNH CÔNG!\nBài thực hành "${state.currentLab.title}" của bạn đã được ghi nhận và lưu lên Cloud Database cho Giảng viên.`);
+        if (syncRes && syncRes.success) {
+            alert(`🎉 NỘP BÀI THÀNH CÔNG!\nBài thực hành "${state.currentLab.title}" của bạn đã được ghi nhận và lưu lên Cloud Database cho Giảng viên.`);
+        } else {
+            const errDetail = syncRes && syncRes.error ? syncRes.error : 'Chưa kết nối Cloud';
+            alert(`💾 ĐÃ LƯU BÀI LÀM TRÊN TRÌNH DUYỆT (OFFLINE)!\n\nLưu ý: Chưa thể đồng bộ lên Cloud Database (${errDetail}).\nBài làm của bạn vẫn được lưu an toàn trên máy này. Khi mạng hoạt động hoặc Giảng viên cập nhật Cloud, bài làm sẽ tự động đồng bộ lại.\nBạn cũng có thể nhấn "💾 Tải Bài Làm (JSON)" ở góc trên để gửi file nộp trực tiếp cho Giảng viên.`);
+        }
 
         renderExercisesTab();
         renderWorkspaceSidebar();
@@ -805,6 +969,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Teacher Dashboard Sub-tabs & Real-time Cloud Inspector
     // ----------------------------------------------------
     let cachedCloudSubmissions = null;
+    let autoRefreshTimer = null;
+    let autoRefreshCountdownSec = 10;
 
     document.getElementById('btnTeacherSubTabSubmissions')?.addEventListener('click', () => {
         document.getElementById('teacherSubmissionsView').style.display = 'block';
@@ -827,82 +993,243 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('teacherSearchStudent')?.addEventListener('input', () => {
-        renderTeacherStudentDashboard(false);
+        renderTeacherStudentDashboard(false, true);
     });
 
-    // Offline JSON File Import for Teacher
+    // Offline JSON File Import for Teacher (Supports multiple files)
     document.getElementById('btnImportStudentJson')?.addEventListener('click', () => {
         document.getElementById('inputJsonFile').click();
     });
 
-    document.getElementById('inputJsonFile')?.addEventListener('change', (evt) => {
-        const file = evt.target.files[0];
-        if (!file) return;
+    document.getElementById('inputJsonFile')?.addEventListener('change', async (evt) => {
+        const files = Array.from(evt.target.files || []);
+        if (files.length === 0) return;
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
+        let successCount = 0;
+        let allLocal = JSON.parse(localStorage.getItem('fpga_all_submissions') || '{}');
+
+        for (const file of files) {
             try {
-                const data = JSON.parse(e.target.result);
-                if (data.studentId && data.labs) {
-                    let allLocal = JSON.parse(localStorage.getItem('fpga_all_submissions') || '{}');
-                    allLocal[data.studentId] = data;
-                    localStorage.setItem('fpga_all_submissions', JSON.stringify(allLocal));
-                    alert(`✅ Đã nạp thành công dữ liệu bài làm của Sinh viên: ${data.studentName} (${data.studentId})`);
-                    renderTeacherStudentDashboard(true);
-                } else {
-                    alert('❌ File JSON không đúng định dạng bài làm sinh viên!');
+                const text = await file.text();
+                const data = JSON.parse(text);
+
+                // Handle both single submission and full student export formats
+                const sId = data.studentId || (data.info ? data.info.id : null);
+                const sName = data.studentName || (data.info ? data.info.name : `Sinh viên ${sId}`);
+                const sClass = data.studentClass || (data.info ? data.info.class : 'N/A');
+
+                if (sId) {
+                    if (!allLocal[sId]) {
+                        allLocal[sId] = {
+                            info: { id: sId, name: sName, class: sClass, lastActive: new Date().toISOString() },
+                            labs: {}
+                        };
+                    }
+                    allLocal[sId].info.name = sName;
+                    allLocal[sId].info.class = sClass;
+                    allLocal[sId].info.lastActive = new Date().toISOString();
+
+                    if (data.labs) {
+                        for (const lId in data.labs) {
+                            allLocal[sId].labs[lId] = data.labs[lId];
+                        }
+                    } else if (data.labId) {
+                        allLocal[sId].labs[data.labId] = data;
+                    }
+                    successCount++;
                 }
             } catch (err) {
-                alert('❌ Lỗi đọc file JSON!');
+                console.warn('Lỗi đọc file JSON:', file.name, err);
             }
-        };
-        reader.readAsText(file);
+        }
+
+        if (successCount > 0) {
+            localStorage.setItem('fpga_all_submissions', JSON.stringify(allLocal));
+            alert(`✅ Đã nạp thành công dữ liệu bài làm của ${successCount} sinh viên!`);
+            renderTeacherStudentDashboard(true);
+
+            // If Cloud is accessible, sync local imports to cloud
+            const cloudUrl = getCloudDbUrl();
+            if (cloudUrl) {
+                try {
+                    for (const sId in allLocal) {
+                        await fetch(`${cloudUrl}/submissions/${encodeURIComponent(sId)}.json`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(allLocal[sId].labs)
+                        });
+                        await fetch(`${cloudUrl}/students/${encodeURIComponent(sId)}.json`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(allLocal[sId].info)
+                        });
+                    }
+                } catch (_) {}
+            }
+        } else {
+            alert('❌ Không nạp được file! Vui lòng chọn đúng file JSON bài làm sinh viên.');
+        }
+        evt.target.value = '';
     });
 
-    async function renderTeacherStudentDashboard(forceRefresh = false) {
+    // Update Teacher Cloud Diagnostic Bar
+    function updateTeacherCloudBar(info) {
+        const pill = document.getElementById('teacherCloudStatusPill');
+        const endpointDisp = document.getElementById('teacherCloudEndpointDisplay');
+        const alertBox = document.getElementById('teacherCloudAlertBox');
+
+        const activeUrl = getCloudDbUrl();
+        if (endpointDisp) {
+            endpointDisp.textContent = activeUrl ? activeUrl : 'Chưa cấu hình Endpoint';
+            endpointDisp.title = activeUrl;
+        }
+
+        if (!pill) return;
+
+        if (info.status === 'ok') {
+            pill.className = 'badge badge-easy';
+            pill.style.background = '#ecfdf5';
+            pill.style.color = '#047857';
+            pill.style.border = '1px solid #a7f3d0';
+            pill.innerHTML = `🟢 Đã kết nối Cloud (${info.count} SV)`;
+            if (alertBox) alertBox.style.display = 'none';
+        } else if (info.status === 'empty') {
+            pill.className = 'badge badge-medium';
+            pill.style.background = '#eff6ff';
+            pill.style.color = '#1d4ed8';
+            pill.style.border = '1px solid #bfdbfe';
+            pill.innerHTML = `🟢 Cloud Online (Database trống)`;
+            if (alertBox) alertBox.style.display = 'none';
+        } else if (info.status === '404') {
+            pill.className = 'badge badge-hard';
+            pill.style.background = '#fef2f2';
+            pill.style.color = '#b91c1c';
+            pill.style.border = '1px solid #fca5a5';
+            pill.innerHTML = `🔴 Lỗi 404: Không tìm thấy Database`;
+            if (alertBox) {
+                alertBox.style.display = 'block';
+                alertBox.innerHTML = `
+                    <div style="font-weight:700; color:#ef4444; margin-bottom:4px;">⚠️ LỖI 404 NOT FOUND: ĐƯỜNG DẪN DATABASE KHÔNG TỒN TẠI TRÊN FIREBASE</div>
+                    <div style="line-height:1.5;">Đường dẫn <code>${escapeHtml(activeUrl)}</code> chưa được tạo trên Firebase Console.</div>
+                    <div style="margin-top:8px;">
+                        <button onclick="document.getElementById('btnOpenCloudConfig').click()" class="btn-primary" style="font-size:0.75rem; padding:4px 10px; background:#4f46e5;">
+                            ⚙️ Nhập URL Firebase của bạn hoặc Xem hướng dẫn tạo (2 phút) &rarr;
+                        </button>
+                    </div>
+                `;
+            }
+        } else if (info.status === '401' || info.status === '403') {
+            pill.className = 'badge badge-medium';
+            pill.style.background = '#fffbeb';
+            pill.style.color = '#b45309';
+            pill.style.border = '1px solid #fde68a';
+            pill.innerHTML = `🟡 Lỗi ${info.status}: Quyền bị khóa`;
+            if (alertBox) {
+                alertBox.style.display = 'block';
+                alertBox.innerHTML = `
+                    <div style="font-weight:700; color:#f59e0b; margin-bottom:4px;">⚠️ LỖI BẢO MẬT (PERMISSION DENIED): DATABASE ĐANG KHÓA QUYỀN ĐỌC/GHI</div>
+                    <div style="line-height:1.5;">Vui lòng truy cập Firebase Console &rarr; Realtime Database &rarr; Tab <strong>Rules</strong> và dán: <code>{ "rules": { ".read": true, ".write": true } }</code> rồi nhấn Publish.</div>
+                `;
+            }
+        } else {
+            pill.className = 'badge badge-hard';
+            pill.style.background = '#fef2f2';
+            pill.style.color = '#b91c1c';
+            pill.style.border = '1px solid #fca5a5';
+            pill.innerHTML = `🔴 Lỗi kết nối Cloud`;
+            if (alertBox) {
+                alertBox.style.display = 'block';
+                alertBox.innerHTML = `
+                    <div style="font-weight:700; color:#ef4444; margin-bottom:4px;">⚠️ KHÔNG THỂ KẾT NỐI TỚI CLOUD DATABASE</div>
+                    <div style="line-height:1.5;">Lỗi mạng hoặc địa chỉ Cloud không phản hồi (${escapeHtml(info.message || 'Lỗi không xác định')}). Đang hiển thị dữ liệu lưu cục bộ trên máy.</div>
+                `;
+            }
+        }
+    }
+
+    async function renderTeacherStudentDashboard(forceRefresh = false, isSilent = false) {
         const container = document.getElementById('teacherStudentTableContainer');
         if (!container) return;
 
-        container.innerHTML = '<div style="color:var(--accent-cyan); font-size:0.9rem; padding:20px; text-align:center;">⏳ Đang tải dữ liệu bài làm sinh viên từ Cloud Database...</div>';
+        if (!isSilent) {
+            container.innerHTML = '<div style="color:var(--accent-cyan); font-size:0.9rem; padding:20px; text-align:center;">⏳ Đang tải dữ liệu bài làm sinh viên từ Cloud Database...</div>';
+        }
 
         let studentMap = {};
 
-        // 1. Load from localStorage (Local Backup)
+        // 1. Load from localStorage (Local Backup & offline imports)
         let localSubmissions = JSON.parse(localStorage.getItem('fpga_all_submissions') || '{}');
         for (let sId in localSubmissions) {
-            studentMap[sId] = localSubmissions[sId];
+            studentMap[sId] = JSON.parse(JSON.stringify(localSubmissions[sId]));
         }
 
-        // 2. Fetch from Firebase REST API
-        try {
-            const resp = await fetch(`${FIREBASE_DB_URL}/submissions.json`);
-            if (resp.ok) {
-                const cloudData = await resp.json();
-                if (cloudData) {
-                    for (let sId in cloudData) {
-                        const sLabs = cloudData[sId];
-                        if (!studentMap[sId]) {
-                            const firstLabKey = Object.keys(sLabs)[0];
-                            const sample = sLabs[firstLabKey];
-                            studentMap[sId] = {
-                                info: {
-                                    id: sample.studentId || sId,
-                                    name: sample.studentName || `Sinh viên ${sId}`,
-                                    class: sample.studentClass || 'N/A'
-                                },
-                                labs: {}
-                            };
+        const cloudUrl = getCloudDbUrl();
+        let cloudDiag = { status: 'unknown' };
+
+        // 2. Fetch from Cloud REST API
+        if (cloudUrl) {
+            try {
+                // Fetch submissions
+                const resp = await fetch(`${cloudUrl}/submissions.json`, { cache: 'no-store' });
+
+                if (resp.status === 404) {
+                    cloudDiag = { status: '404', message: 'Database không tồn tại' };
+                } else if (resp.status === 401 || resp.status === 403) {
+                    cloudDiag = { status: String(resp.status), message: 'Bị khóa quyền' };
+                } else if (resp.ok) {
+                    const cloudData = await resp.json();
+                    if (cloudData) {
+                        for (let sId in cloudData) {
+                            const sLabs = cloudData[sId];
+                            if (!studentMap[sId]) {
+                                const firstLabKey = Object.keys(sLabs)[0];
+                                const sample = sLabs[firstLabKey] || {};
+                                studentMap[sId] = {
+                                    info: {
+                                        id: sample.studentId || sId,
+                                        name: sample.studentName || `Sinh viên ${sId}`,
+                                        class: sample.studentClass || 'N/A'
+                                    },
+                                    labs: {}
+                                };
+                            }
+                            for (let lId in sLabs) {
+                                studentMap[sId].labs[lId] = sLabs[lId];
+                            }
                         }
-                        for (let lId in sLabs) {
-                            studentMap[sId].labs[lId] = sLabs[lId];
-                        }
+                        cloudDiag = { status: 'ok', count: Object.keys(studentMap).length };
+                    } else {
+                        cloudDiag = { status: 'empty', count: 0 };
                     }
+
+                    // Optional: Fetch students metadata for lastActive and updated profile
+                    try {
+                        const stuResp = await fetch(`${cloudUrl}/students.json`, { cache: 'no-store' });
+                        if (stuResp.ok) {
+                            const stuData = await stuResp.json();
+                            if (stuData) {
+                                for (let sId in stuData) {
+                                    if (studentMap[sId] && studentMap[sId].info) {
+                                        if (stuData[sId].lastActive) studentMap[sId].info.lastActive = stuData[sId].lastActive;
+                                        if (stuData[sId].name) studentMap[sId].info.name = stuData[sId].name;
+                                        if (stuData[sId].class) studentMap[sId].info.class = stuData[sId].class;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_) {}
+                } else {
+                    cloudDiag = { status: 'error', message: `HTTP ${resp.status}` };
                 }
+            } catch (e) {
+                console.warn('Cannot fetch Firebase cloud data, using local submissions:', e);
+                cloudDiag = { status: 'error', message: e.message || 'Lỗi mạng' };
             }
-        } catch (e) {
-            console.warn('Cannot fetch Firebase cloud data, using local submissions:', e);
+        } else {
+            cloudDiag = { status: '404', message: 'Chưa cấu hình URL' };
         }
 
+        updateTeacherCloudBar(cloudDiag);
         cachedCloudSubmissions = studentMap;
 
         // Filter by search text
@@ -911,17 +1238,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (query) {
             studentList = studentList.filter(s => 
-                (s.id && s.id.toLowerCase().includes(query)) ||
-                (s.name && s.name.toLowerCase().includes(query)) ||
-                (s.class && s.class.toLowerCase().includes(query))
+                (s.id && String(s.id).toLowerCase().includes(query)) ||
+                (s.name && String(s.name).toLowerCase().includes(query)) ||
+                (s.class && String(s.class).toLowerCase().includes(query))
             );
         }
 
         if (studentList.length === 0) {
             container.innerHTML = `
-                <div style="background:#0f172a; border:1px solid #334155; border-radius:8px; padding:2rem; text-align:center; color:var(--text-subtle);">
-                    📭 Chưa có bài làm nào của sinh viên được nộp trên hệ thống.<br>
-                    <span style="font-size:0.8rem; color:var(--accent-cyan); margin-top:6px; display:block;">(Khi sinh viên làm bài và nhấn "✓ Nộp Bài", bài làm sẽ tự động xuất hiện tại đây).</span>
+                <div style="background:#0f172a; border:1px solid #334155; border-radius:8px; padding:2.5rem; text-align:center; color:var(--text-subtle);">
+                    <div style="font-size:2rem; margin-bottom:8px;">📭</div>
+                    <strong style="color:#e2e8f0; font-size:1rem;">Chưa có bài làm nào của sinh viên được nộp trên hệ thống.</strong><br>
+                    <span style="font-size:0.85rem; color:var(--accent-cyan); margin-top:8px; display:inline-block;">
+                        Khi sinh viên làm bài và nhấn "✓ Nộp Bài", tiến trình sẽ tự động xuất hiện tại đây theo thời gian thực (Realtime).
+                    </span>
+                    <div style="margin-top:16px;">
+                        <button onclick="document.getElementById('btnCopyClassLink').click()" class="btn-primary" style="font-size:0.8rem; padding:6px 14px; background:#059669;">
+                            🔗 Sao Chép Link Giao Bài Cho Sinh Viên &rarr;
+                        </button>
+                    </div>
                 </div>
             `;
             return;
@@ -956,7 +1291,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td style="padding:10px 12px; font-weight:600; color:#fff;">${escapeHtml(s.name)}</td>
                     <td style="padding:10px 12px; color:var(--text-muted);">${escapeHtml(s.class || 'N/A')}</td>
                     <td style="padding:10px 12px; text-align:center;">
-                        <span class="badge badge-medium" style="font-size:0.8rem;">${submittedCount} / 35 bài</span>
+                        <span class="badge ${submittedCount > 0 ? 'badge-easy' : 'badge-medium'}" style="font-size:0.8rem;">
+                            ${submittedCount} / 35 bài
+                        </span>
                     </td>
                     <td style="padding:10px 12px; text-align:center;">
                         <span class="badge ${avgScore >= 80 ? 'badge-easy' : (avgScore >= 50 ? 'badge-medium' : 'badge-hard')}" style="font-size:0.85rem;">
@@ -965,7 +1302,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </td>
                     <td style="padding:10px 12px; font-size:0.8rem; color:var(--text-subtle);">${lastTimeStr}</td>
                     <td style="padding:10px 12px; text-align:center;">
-                        <button class="btn-primary btn-view-student" data-studentid="${s.id}" style="font-size:0.75rem; padding:4px 10px; background:linear-gradient(135deg, #2563eb, #0284c7);">
+                        <button class="btn-primary btn-view-student" data-studentid="${escapeHtml(s.id)}" style="font-size:0.75rem; padding:4px 10px; background:linear-gradient(135deg, #2563eb, #0284c7);">
                             🔍 Xem Chi Tiết
                         </button>
                     </td>
@@ -997,10 +1334,295 @@ document.addEventListener('DOMContentLoaded', () => {
 
         container.querySelectorAll('.btn-view-student').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const sId = e.target.getAttribute('data-studentid');
+                const sId = e.currentTarget.getAttribute('data-studentid');
                 openStudentDetailModal(sId);
             });
         });
+    }
+
+    // ----------------------------------------------------
+    // Cloud Configuration Modal Logic
+    // ----------------------------------------------------
+    function initCloudConfigurationModal() {
+        const modal = document.getElementById('cloudConfigModal');
+        const btnOpen = document.getElementById('btnOpenCloudConfig');
+        const btnClose = document.getElementById('btnCloseCloudConfigModal');
+        const inputUrl = document.getElementById('inputCloudDbUrl');
+        const btnTest = document.getElementById('btnTestCloudConnection');
+        const btnSave = document.getElementById('btnSaveCloudDbUrl');
+        const btnReset = document.getElementById('btnResetDefaultCloudUrl');
+        const resultDiv = document.getElementById('cloudTestResult');
+
+        if (btnOpen) {
+            btnOpen.addEventListener('click', () => {
+                if (inputUrl) inputUrl.value = getCloudDbUrl();
+                if (resultDiv) resultDiv.style.display = 'none';
+                if (modal) modal.style.display = 'flex';
+            });
+        }
+
+        if (btnClose) {
+            btnClose.addEventListener('click', () => {
+                if (modal) modal.style.display = 'none';
+            });
+        }
+
+        // Ping Test Realtime Database
+        if (btnTest) {
+            btnTest.addEventListener('click', async () => {
+                const url = cleanFirebaseUrl(inputUrl.value);
+                if (!url) {
+                    alert('Vui lòng nhập đường dẫn Database!');
+                    return;
+                }
+
+                resultDiv.style.display = 'block';
+                resultDiv.style.background = '#1e293b';
+                resultDiv.style.color = '#38bdf8';
+                resultDiv.innerHTML = '⏳ Đang kiểm tra kết nối tới Firebase Database...';
+
+                try {
+                    const testResp = await fetch(`${url}/.json?shallow=true`, { cache: 'no-store' });
+                    if (testResp.ok) {
+                        resultDiv.style.background = '#064e3b';
+                        resultDiv.style.color = '#34d399';
+                        resultDiv.innerHTML = '✅ <strong>KẾT NỐI THÀNH CÔNG (200 OK)!</strong><br>Realtime Database đang hoạt động tốt và sẵn sàng nhận bài của sinh viên.';
+                    } else if (testResp.status === 404) {
+                        resultDiv.style.background = '#450a0a';
+                        resultDiv.style.color = '#f87171';
+                        resultDiv.innerHTML = '❌ <strong>LỖI 404 NOT FOUND:</strong><br>Database này chưa tồn tại trên Firebase. Vui lòng kiểm tra lại URL hoặc làm theo hướng dẫn 2 phút bên dưới để tạo database.';
+                    } else if (testResp.status === 401 || testResp.status === 403) {
+                        resultDiv.style.background = '#451a03';
+                        resultDiv.style.color = '#fbbf24';
+                        resultDiv.innerHTML = '⚠️ <strong>LỖI 401/403 BỊ KHÓA QUYỀN:</strong><br>Database đã tồn tại nhưng Rules đang chặn đọc/ghi. Vui lòng vào tab Rules trên Firebase Console và đổi <code>".read": true, ".write": true</code>.';
+                    } else {
+                        resultDiv.style.background = '#450a0a';
+                        resultDiv.style.color = '#f87171';
+                        resultDiv.innerHTML = `❌ <strong>LỖI HTTP ${testResp.status}:</strong> ${testResp.statusText}`;
+                    }
+                } catch (err) {
+                    resultDiv.style.background = '#450a0a';
+                    resultDiv.style.color = '#f87171';
+                    resultDiv.innerHTML = `❌ <strong>LỖI KẾT NỐI MẠNG / CORS:</strong><br>${err.message || 'Không thể gửi yêu cầu'}. Hãy kiểm tra lại URL có đúng định dạng https://... không.`;
+                }
+            });
+        }
+
+        // Save URL
+        if (btnSave) {
+            btnSave.addEventListener('click', () => {
+                const url = cleanFirebaseUrl(inputUrl.value);
+                if (!url) {
+                    alert('Vui lòng nhập đường dẫn Database!');
+                    return;
+                }
+                localStorage.setItem('fpga_cloud_db_url', url);
+                alert(`✅ Đã lưu cấu hình Cloud Database thành công!\nURL: ${url}`);
+                if (modal) modal.style.display = 'none';
+                renderTeacherStudentDashboard(true);
+            });
+        }
+
+        // Reset default
+        if (btnReset) {
+            btnReset.addEventListener('click', () => {
+                localStorage.removeItem('fpga_cloud_db_url');
+                if (inputUrl) inputUrl.value = DEFAULT_FIREBASE_DB_URL;
+                alert('Đã khôi phục về URL mặc định!');
+            });
+        }
+    }
+
+    // ----------------------------------------------------
+    // Teacher Cloud Quick Actions (Share Link, Export CSV, Auto-Refresh)
+    // ----------------------------------------------------
+    function initTeacherCloudActions() {
+        // Copy Shareable Link for Students
+        const btnCopyLink = document.getElementById('btnCopyClassLink');
+        if (btnCopyLink) {
+            btnCopyLink.addEventListener('click', () => {
+                const cloudUrl = getCloudDbUrl();
+                const shareUrl = `${window.location.origin}${window.location.pathname}?db=${encodeURIComponent(cloudUrl)}`;
+                
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(shareUrl).then(() => {
+                        alert(`🔗 ĐÃ SAO CHÉP LINK GIAO BÀI CHO SINH VIÊN!\n\n${shareUrl}\n\n👉 Thầy/Cô chỉ cần gửi link này vào Zalo/Teams lớp. Khi sinh viên bấm vào link, hệ thống sẽ tự động kết nối chính xác tới Cloud Database của Thầy/Cô!`);
+                    }).catch(() => {
+                        prompt('Copy link dưới đây gửi cho lớp:', shareUrl);
+                    });
+                } else {
+                    prompt('Copy link dưới đây gửi cho lớp:', shareUrl);
+                }
+            });
+        }
+
+        // Export Entire Class to CSV / Excel
+        const btnExportCsv = document.getElementById('btnExportClassExcel');
+        if (btnExportCsv) {
+            btnExportCsv.addEventListener('click', () => {
+                if (!cachedCloudSubmissions || Object.keys(cachedCloudSubmissions).length === 0) {
+                    alert('Chưa có dữ liệu sinh viên nào để xuất file!');
+                    return;
+                }
+
+                const students = Object.values(cachedCloudSubmissions).map(s => s.info);
+                if (students.length === 0) {
+                    alert('Danh sách sinh viên trống!');
+                    return;
+                }
+
+                // Header columns
+                let csvContent = '\uFEFF'; // UTF-8 BOM for Excel Vietnamese support
+                const headers = ['STT', 'Mã Sinh Viên', 'Họ và Tên', 'Lớp', 'Số bài nộp', 'Điểm AI TB', 'Thời gian nộp cuối'];
+                for (let i = 1; i <= 35; i++) headers.push(`Bài ${i}`);
+                csvContent += headers.map(h => `"${h}"`).join(',') + '\r\n';
+
+                students.forEach((s, idx) => {
+                    const sData = cachedCloudSubmissions[s.id] || { labs: {} };
+                    const labs = sData.labs || {};
+                    const submittedLabs = Object.values(labs);
+                    const count = submittedLabs.length;
+
+                    let totalScore = 0;
+                    submittedLabs.forEach(l => {
+                        if (l.grade && l.grade.score !== undefined) totalScore += l.grade.score;
+                    });
+                    const avgScore = count > 0 ? Math.round(totalScore / count) : 0;
+
+                    let lastTimeStr = s.lastActive ? new Date(s.lastActive).toLocaleString('vi-VN') : 'Chưa có';
+
+                    const row = [
+                        idx + 1,
+                        `'${s.id}`, // Single quote to preserve leading zeros in Excel
+                        s.name || '',
+                        s.class || 'N/A',
+                        `${count}/35`,
+                        avgScore,
+                        lastTimeStr
+                    ];
+
+                    for (let lId = 1; lId <= 35; lId++) {
+                        const lSub = labs[lId];
+                        if (lSub && lSub.grade && lSub.grade.score !== undefined) {
+                            row.push(`${lSub.grade.score}đ (${lSub.grade.status || 'OK'})`);
+                        } else if (lSub) {
+                            row.push('Đã nộp');
+                        } else {
+                            row.push('Chưa nộp');
+                        }
+                    }
+
+                    csvContent += row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\r\n';
+                });
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `Bang_Diem_Thuc_Hanh_FPGA_${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        }
+
+        // Auto-Refresh Realtime Interval
+        const selectAuto = document.getElementById('selectAutoRefresh');
+        const countdownSpan = document.getElementById('autoRefreshCountdown');
+
+        function startAutoRefreshLoop() {
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            if (!selectAuto) return;
+
+            const sec = parseInt(selectAuto.value, 10);
+            if (!sec || sec <= 0) {
+                if (countdownSpan) countdownSpan.textContent = '';
+                return;
+            }
+
+            autoRefreshCountdownSec = sec;
+            if (countdownSpan) countdownSpan.textContent = `${autoRefreshCountdownSec}s`;
+
+            autoRefreshTimer = setInterval(() => {
+                autoRefreshCountdownSec--;
+                if (autoRefreshCountdownSec <= 0) {
+                    autoRefreshCountdownSec = sec;
+                    // Trigger silent refresh
+                    const isTabVisible = state.currentTab === 'solutions' && 
+                                        document.getElementById('teacherSubmissionsView')?.style.display !== 'none';
+                    if (isTabVisible) {
+                        renderTeacherStudentDashboard(true, true);
+                    }
+                }
+                if (countdownSpan) countdownSpan.textContent = `${autoRefreshCountdownSec}s`;
+            }, 1000);
+        }
+
+        if (selectAuto) {
+            selectAuto.addEventListener('change', startAutoRefreshLoop);
+            startAutoRefreshLoop();
+        }
+    }
+
+    // ----------------------------------------------------
+    // Student Offline Backup & Manual Sync Logic
+    // ----------------------------------------------------
+    function initStudentExportJson() {
+        const btnExport = document.getElementById('btnStudentExportJson');
+        if (btnExport) {
+            btnExport.addEventListener('click', () => {
+                if (!state.student || !state.student.id) {
+                    alert('Vui lòng đăng nhập sinh viên trước khi xuất file bài làm!');
+                    return;
+                }
+
+                const exportData = {
+                    studentId: state.student.id,
+                    studentName: state.student.name,
+                    studentClass: state.student.class || 'N/A',
+                    exportedAt: new Date().toISOString(),
+                    completedLabs: state.completedLabs || [],
+                    userCodeMap: state.userCodeMap || {},
+                    userTruthTableMap: state.userTruthTableMap || {},
+                    userNotesMap: state.userNotesMap || {},
+                    userGradesMap: state.userGradesMap || {},
+                    labs: {}
+                };
+
+                // Populate individual lab records
+                (state.completedLabs || []).forEach(lId => {
+                    const labObj = FPGA_EXERCISES.find(e => e.id === lId);
+                    exportData.labs[lId] = {
+                        studentId: state.student.id,
+                        studentName: state.student.name,
+                        studentClass: state.student.class || 'N/A',
+                        labId: lId,
+                        labTitle: labObj ? labObj.title : `Bài ${lId}`,
+                        code: state.userCodeMap[lId] || (labObj ? labObj.template : ''),
+                        truthTable: state.userTruthTableMap[lId] || {},
+                        notes: state.userNotesMap[lId] || '',
+                        grade: state.userGradesMap[lId] || null,
+                        submittedAt: new Date().toISOString()
+                    };
+                });
+
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                const safeName = state.student.name.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1E00-\u1EFF]/g, '_');
+                link.download = `BaiLam_FPGA_${state.student.id}_${safeName}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        }
+
+        // Clicking on student cloud status badge triggers re-sync
+        const badge = document.getElementById('cloudStatusBadge');
+        if (badge) {
+            badge.addEventListener('click', () => {
+                syncAllStudentProgressToCloud();
+            });
+        }
     }
 
     function openStudentDetailModal(studentId) {
