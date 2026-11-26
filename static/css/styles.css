@@ -705,6 +705,269 @@ pre code {
 }
 
 /* ==========================================================================
+   MOBILE & TABLET RESPONSIVE STYLES
+   ========================================================================== */
+
+/* Mobile Quick Lab Selector */
+.mobile-lab-picker-bar {
+    display: none;
+    background: #eff6ff;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    border: 1.5px solid #bfdbfe;
+    margin-bottom: 12px;
+}
+
+.mobile-lab-select {
+    width: 100%;
+    padding: 10px 12px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1.5px solid #93c5fd;
+    background: #ffffff;
+    font-size: 0.95rem;
+    color: #0f172a;
+    outline: none;
+}
+
+/* Mobile Sticky Bottom Floating Action Bar */
+.mobile-sticky-actions {
+    display: none;
+}
+
+@media (max-width: 1024px) {
+    .workspace-layout {
+        grid-template-columns: 260px 1fr 380px;
+        gap: 1rem;
+    }
+}
+
+@media (max-width: 900px) {
+    .workspace-layout {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+        min-height: auto;
+    }
+
+    /* On mobile/tablet, the Lab Editor comes FIRST so students see the task and submit button immediately! */
+    .editor-pane {
+        order: 1;
+        width: 100%;
+    }
+
+    .board-pane {
+        order: 2;
+        width: 100%;
+        max-height: none;
+    }
+
+    .ws-sidebar {
+        order: 3;
+        width: 100%;
+        max-height: 320px;
+    }
+
+    .mobile-lab-picker-bar {
+        display: block;
+    }
+}
+
+@media (max-width: 768px) {
+    body {
+        padding-bottom: 74px; /* Space for the floating bottom action bar */
+    }
+
+    .app-header {
+        padding: 0.6rem 0.85rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        position: relative;
+    }
+
+    .brand-container {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .brand-title h1 {
+        font-size: 0.95rem;
+    }
+
+    .brand-title p {
+        font-size: 0.7rem;
+    }
+
+    .nav-tabs {
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+        padding: 4px;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        justify-content: flex-start;
+        border-radius: 12px;
+    }
+
+    .nav-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .nav-tab {
+        padding: 0.45rem 0.85rem;
+        font-size: 0.8rem;
+        flex-shrink: 0;
+    }
+
+    .header-actions {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+    }
+
+    .header-actions::-webkit-scrollbar {
+        display: none;
+    }
+
+    .user-profile {
+        padding: 4px 8px;
+    }
+
+    .user-details strong {
+        font-size: 0.8rem;
+    }
+
+    .user-details span {
+        font-size: 0.7rem;
+    }
+
+    .main-container {
+        padding: 0.75rem 0.5rem;
+    }
+
+    /* Editor Pane Header on Mobile */
+    .pane-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 0.85rem 1rem;
+    }
+
+    .pane-title {
+        font-size: 0.95rem;
+        line-height: 1.4;
+    }
+
+    .pane-header > div:last-child {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        width: 100%;
+    }
+
+    #btnRunSim, #btnSubmitLab {
+        padding: 0.7rem 0.75rem !important;
+        font-size: 0.9rem !important;
+        font-weight: 700 !important;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+    }
+
+    /* Code editor area */
+    .code-editor-wrapper {
+        min-height: 300px;
+        max-height: 420px;
+    }
+
+    /* Mobile Floating Action Bar */
+    .mobile-sticky-actions {
+        display: flex !important;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: rgba(15, 23, 42, 0.96);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        padding: 10px 14px;
+        gap: 10px;
+        z-index: 1000;
+        border-top: 1px solid #334155;
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .btn-sticky-sim {
+        flex: 1;
+        min-height: 46px;
+        font-size: 0.925rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: #ffffff;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+
+    .btn-sticky-submit {
+        flex: 1.15;
+        min-height: 46px;
+        font-size: 0.925rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #059669, #10b981);
+        color: #ffffff;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+
+    /* Hardware Simulator touches */
+    .board-sim-view {
+        padding: 0.85rem;
+    }
+
+    .sw-row {
+        justify-content: center;
+    }
+
+    .btn-hw-switch {
+        padding: 0.55rem 0.85rem;
+        font-size: 0.85rem;
+        min-height: 42px;
+    }
+
+    /* Waveform Container */
+    #waveformSvgContainer {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Teacher view responsive */
+    #teacherStudentTableContainer {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+/* ==========================================================================
    PRINTABLE PDF REPORT STYLES (@media print)
    ========================================================================== */
 .print-only { display: none; }
