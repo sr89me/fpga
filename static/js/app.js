@@ -22,6 +22,68 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const state = window.appState;
 
+    // ----------------------------------------------------
+    // Global Constants, Cloud Config & Core Helpers
+    // ----------------------------------------------------
+    const DEFAULT_FIREBASE_DB_URL = "https://fpga-tangnano9k-default-rtdb.asia-southeast1.firebasedatabase.app";
+    let cachedCloudSubmissions = null;
+    let autoRefreshTimer = null;
+    let autoRefreshCountdownSec = 10;
+
+    // Robust HTML Escape (handles numbers, null, undefined)
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    // Clean & normalize Firebase / Cloud REST URL
+    function cleanFirebaseUrl(url) {
+        if (!url) return '';
+        let u = String(url).trim();
+        if (!u.startsWith('http://') && !u.startsWith('https://')) {
+            u = 'https://' + u;
+        }
+        return u.replace(/\/+$/, '').replace(/\/\.json$/, '');
+    }
+
+    // Resolve current active Cloud DB URL
+    function getCloudDbUrl() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const queryUrl = params.get('db') || params.get('cloud');
+            if (queryUrl) {
+                const cleaned = cleanFirebaseUrl(queryUrl);
+                localStorage.setItem('fpga_cloud_db_url', cleaned);
+                return cleaned;
+            }
+        } catch (_) {}
+
+        let saved = localStorage.getItem('fpga_cloud_db_url');
+        if (saved) {
+            if (saved.includes('fpga-nano9k-default-rtdb.firebaseio.com')) {
+                saved = DEFAULT_FIREBASE_DB_URL;
+                localStorage.setItem('fpga_cloud_db_url', DEFAULT_FIREBASE_DB_URL);
+            }
+            return cleanFirebaseUrl(saved);
+        }
+
+        return cleanFirebaseUrl(DEFAULT_FIREBASE_DB_URL);
+    }
+
+    // Universal fetch with abort timeout (works reliably across all browsers)
+    async function fetchWithTimeout(url, options = {}) {
+        const { timeout = 4000, ...fetchOpts } = options;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+            const resp = await fetch(url, { ...fetchOpts, signal: controller.signal });
+            return resp;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+
     // Global helper to switch tabs cleanly
     window.switchTab = function(targetTabId) {
         if (targetTabId === 'solutions' && !state.isTeacherUnlocked) {
@@ -61,21 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.switchTab('workspace');
     };
 
-    // Initialize UI
-    initLoginModal();
-    initTeacherPinModal();
-    initNavigation();
-    renderTutorialsTab();
-    renderExercisesTab();
-    renderPinoutTab();
-    renderWorkspaceSidebar();
-    loadLabWorkspace(FPGA_EXERCISES[0]);
-    initPdfReportExport();
-    initCodeEditorHighlight();
-    initCloudConfigurationModal();
-    initTeacherCloudActions();
-    initStudentExportJson();
-    checkCloudStatusOnStartup();
+    // Note: initApp() is called at the end of DOMContentLoaded to ensure all DOM elements and handlers are bound.
 
     // ----------------------------------------------------
     // Mandatory Login Modal Logic
@@ -678,45 +726,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----------------------------------------------------
     // Student Submission Workflow & Firebase Cloud Sync
     // ----------------------------------------------------
-    const DEFAULT_FIREBASE_DB_URL = "https://fpga-tangnano9k-default-rtdb.asia-southeast1.firebasedatabase.app";
-
-    // Clean & normalize Firebase / Cloud REST URL
-    function cleanFirebaseUrl(url) {
-        if (!url) return '';
-        let u = String(url).trim();
-        if (!u.startsWith('http://') && !u.startsWith('https://')) {
-            u = 'https://' + u;
-        }
-        return u.replace(/\/+$/, '').replace(/\/\.json$/, '');
-    }
-
-    // Resolve current active Cloud DB URL
-    function getCloudDbUrl() {
-        // 1. URL parameter (?db=... or ?cloud=...)
-        try {
-            const params = new URLSearchParams(window.location.search);
-            const queryUrl = params.get('db') || params.get('cloud');
-            if (queryUrl) {
-                const cleaned = cleanFirebaseUrl(queryUrl);
-                localStorage.setItem('fpga_cloud_db_url', cleaned);
-                return cleaned;
-            }
-        } catch (_) {}
-
-        // 2. Custom URL saved by Teacher
-        let saved = localStorage.getItem('fpga_cloud_db_url');
-        if (saved) {
-            // Auto-migrate if pointing to old placeholder
-            if (saved.includes('fpga-nano9k-default-rtdb.firebaseio.com')) {
-                saved = DEFAULT_FIREBASE_DB_URL;
-                localStorage.setItem('fpga_cloud_db_url', DEFAULT_FIREBASE_DB_URL);
-            }
-            return cleanFirebaseUrl(saved);
-        }
-
-        // 3. Built-in default
-        return cleanFirebaseUrl(DEFAULT_FIREBASE_DB_URL);
-    }
 
     // Update UI status badge for Student
     function updateCloudStatusBadge(status, text) {
@@ -976,9 +985,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----------------------------------------------------
     // Teacher Dashboard Sub-tabs & Real-time Cloud Inspector
     // ----------------------------------------------------
-    let cachedCloudSubmissions = null;
-    let autoRefreshTimer = null;
-    let autoRefreshCountdownSec = 10;
 
     document.getElementById('btnTeacherSubTabSubmissions')?.addEventListener('click', () => {
         document.getElementById('teacherSubmissionsView').style.display = 'block';
@@ -1188,10 +1194,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cloudUrl) {
             try {
                 // Fetch submissions
-                const resp = await fetch(`${cloudUrl}/submissions.json`, { 
-                    cache: 'no-store',
-                    signal: AbortSignal.timeout(3500)
-                });
+                const resp = await fetchWithTimeout(`${cloudUrl}/submissions.json`, { cache: 'no-store', timeout: 3500 });
 
                 if (resp.status === 404) {
                     cloudDiag = { status: '404', message: 'Database không tồn tại' };
@@ -1225,10 +1228,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Optional: Fetch students metadata for lastActive and updated profile
                     try {
-                        const stuResp = await fetch(`${cloudUrl}/students.json`, { 
-                            cache: 'no-store',
-                            signal: AbortSignal.timeout(2500)
-                        });
+                        const stuResp = await fetchWithTimeout(`${cloudUrl}/students.json`, { cache: 'no-store', timeout: 2500 });
                         if (stuResp.ok) {
                             const stuData = await stuResp.json();
                             if (stuData) {
@@ -1384,14 +1384,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (cloudUrl) {
                     try {
                         const sIdEncoded = encodeURIComponent(sId);
-                        await fetch(`${cloudUrl}/submissions/${sIdEncoded}.json`, { 
-                            method: 'DELETE', 
-                            signal: AbortSignal.timeout(4000) 
-                        });
-                        await fetch(`${cloudUrl}/students/${sIdEncoded}.json`, { 
-                            method: 'DELETE', 
-                            signal: AbortSignal.timeout(4000) 
-                        });
+                        await fetchWithTimeout(`${cloudUrl}/submissions/${sIdEncoded}.json`, { method: 'DELETE', timeout: 4000 });
+                        await fetchWithTimeout(`${cloudUrl}/students/${sIdEncoded}.json`, { method: 'DELETE', timeout: 4000 });
                     } catch (err) {
                         console.warn('Lỗi xóa Cloud:', err);
                     }
@@ -1643,14 +1637,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const cloudUrl = getCloudDbUrl();
                 if (cloudUrl) {
                     try {
-                        await fetch(`${cloudUrl}/submissions.json`, { 
-                            method: 'DELETE', 
-                            signal: AbortSignal.timeout(5000) 
-                        });
-                        await fetch(`${cloudUrl}/students.json`, { 
-                            method: 'DELETE', 
-                            signal: AbortSignal.timeout(5000) 
-                        });
+                        await fetchWithTimeout(`${cloudUrl}/submissions.json`, { method: 'DELETE', timeout: 5000 });
+                        await fetchWithTimeout(`${cloudUrl}/students.json`, { method: 'DELETE', timeout: 5000 });
                     } catch (err) {
                         console.warn('Lỗi xóa Cloud:', err);
                     }
@@ -1731,10 +1719,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         try {
-            const r = await fetch(`${cloudUrl}/.json?shallow=true`, {
-                cache: 'no-store',
-                signal: AbortSignal.timeout(3500)
-            });
+            const r = await fetchWithTimeout(`${cloudUrl}/.json?shallow=true`, { cache: 'no-store', timeout: 3500 });
             if (r.ok) {
                 updateCloudStatusBadge('connected', '☁️ Cloud: Đã kết nối');
             } else {
@@ -2118,7 +2103,31 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function escapeHtml(text) {
-        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+
+    // ----------------------------------------------------
+    // Robust Application Bootstrapper
+    // ----------------------------------------------------
+    function initApp() {
+        const safeRun = (name, fn) => {
+            try { fn(); } catch (err) { console.error('Error initializing ' + name + ':', err); }
+        };
+
+        safeRun('initLoginModal', initLoginModal);
+        safeRun('initTeacherPinModal', initTeacherPinModal);
+        safeRun('initNavigation', initNavigation);
+        safeRun('renderTutorialsTab', renderTutorialsTab);
+        safeRun('renderExercisesTab', renderExercisesTab);
+        safeRun('renderPinoutTab', renderPinoutTab);
+        safeRun('renderWorkspaceSidebar', renderWorkspaceSidebar);
+        safeRun('loadLabWorkspace', () => loadLabWorkspace(FPGA_EXERCISES[0]));
+        safeRun('initPdfReportExport', initPdfReportExport);
+        safeRun('initCodeEditorHighlight', initCodeEditorHighlight);
+        safeRun('initCloudConfigurationModal', initCloudConfigurationModal);
+        safeRun('initTeacherCloudActions', initTeacherCloudActions);
+        safeRun('initStudentExportJson', initStudentExportJson);
+        safeRun('checkCloudStatusOnStartup', checkCloudStatusOnStartup);
     }
+
+    initApp();
 });
