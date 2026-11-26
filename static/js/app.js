@@ -75,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCloudConfigurationModal();
     initTeacherCloudActions();
     initStudentExportJson();
+    checkCloudStatusOnStartup();
 
     // ----------------------------------------------------
     // Mandatory Login Modal Logic
@@ -703,8 +704,15 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) {}
 
         // 2. Custom URL saved by Teacher
-        const saved = localStorage.getItem('fpga_cloud_db_url');
-        if (saved) return cleanFirebaseUrl(saved);
+        let saved = localStorage.getItem('fpga_cloud_db_url');
+        if (saved) {
+            // Auto-migrate if pointing to old placeholder
+            if (saved.includes('fpga-nano9k-default-rtdb.firebaseio.com')) {
+                saved = DEFAULT_FIREBASE_DB_URL;
+                localStorage.setItem('fpga_cloud_db_url', DEFAULT_FIREBASE_DB_URL);
+            }
+            return cleanFirebaseUrl(saved);
+        }
 
         // 3. Built-in default
         return cleanFirebaseUrl(DEFAULT_FIREBASE_DB_URL);
@@ -1086,6 +1094,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!pill) return;
 
+        if (info.status === 'checking') {
+            pill.className = 'badge badge-medium';
+            pill.style.background = '#eff6ff';
+            pill.style.color = '#1d4ed8';
+            pill.style.border = '1px solid #bfdbfe';
+            pill.innerHTML = `⏳ Đang kiểm tra Cloud...`;
+            return;
+        }
+
         if (info.status === 'ok') {
             pill.className = 'badge badge-easy';
             pill.style.background = '#ecfdf5';
@@ -1094,11 +1111,11 @@ document.addEventListener('DOMContentLoaded', () => {
             pill.innerHTML = `🟢 Đã kết nối Cloud (${info.count} SV)`;
             if (alertBox) alertBox.style.display = 'none';
         } else if (info.status === 'empty') {
-            pill.className = 'badge badge-medium';
-            pill.style.background = '#eff6ff';
-            pill.style.color = '#1d4ed8';
-            pill.style.border = '1px solid #bfdbfe';
-            pill.innerHTML = `🟢 Cloud Online (Database trống)`;
+            pill.className = 'badge badge-easy';
+            pill.style.background = '#ecfdf5';
+            pill.style.color = '#047857';
+            pill.style.border = '1px solid #a7f3d0';
+            pill.innerHTML = `🟢 Đã kết nối Cloud (Sẵn sàng)`;
             if (alertBox) alertBox.style.display = 'none';
         } else if (info.status === '404') {
             pill.className = 'badge badge-hard';
@@ -1153,6 +1170,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!isSilent) {
             container.innerHTML = '<div style="color:var(--accent-cyan); font-size:0.9rem; padding:20px; text-align:center;">⏳ Đang tải dữ liệu bài làm sinh viên từ Cloud Database...</div>';
+            updateTeacherCloudBar({ status: 'checking' });
         }
 
         let studentMap = {};
@@ -1166,11 +1184,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const cloudUrl = getCloudDbUrl();
         let cloudDiag = { status: 'unknown' };
 
-        // 2. Fetch from Cloud REST API
+        // 2. Fetch from Cloud REST API (with 3.5s timeout)
         if (cloudUrl) {
             try {
                 // Fetch submissions
-                const resp = await fetch(`${cloudUrl}/submissions.json`, { cache: 'no-store' });
+                const resp = await fetch(`${cloudUrl}/submissions.json`, { 
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(3500)
+                });
 
                 if (resp.status === 404) {
                     cloudDiag = { status: '404', message: 'Database không tồn tại' };
@@ -1199,12 +1220,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                         cloudDiag = { status: 'ok', count: Object.keys(studentMap).length };
                     } else {
-                        cloudDiag = { status: 'empty', count: 0 };
+                        cloudDiag = { status: 'empty', count: Object.keys(studentMap).length };
                     }
 
                     // Optional: Fetch students metadata for lastActive and updated profile
                     try {
-                        const stuResp = await fetch(`${cloudUrl}/students.json`, { cache: 'no-store' });
+                        const stuResp = await fetch(`${cloudUrl}/students.json`, { 
+                            cache: 'no-store',
+                            signal: AbortSignal.timeout(2500)
+                        });
                         if (stuResp.ok) {
                             const stuData = await stuResp.json();
                             if (stuData) {
@@ -1301,9 +1325,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         </span>
                     </td>
                     <td style="padding:10px 12px; font-size:0.8rem; color:var(--text-subtle);">${lastTimeStr}</td>
-                    <td style="padding:10px 12px; text-align:center;">
-                        <button class="btn-primary btn-view-student" data-studentid="${escapeHtml(s.id)}" style="font-size:0.75rem; padding:4px 10px; background:linear-gradient(135deg, #2563eb, #0284c7);">
-                            🔍 Xem Chi Tiết
+                    <td style="padding:10px 12px; text-align:center; white-space:nowrap;">
+                        <button class="btn-primary btn-view-student" data-studentid="${escapeHtml(s.id)}" style="font-size:0.75rem; padding:4px 8px; background:linear-gradient(135deg, #2563eb, #0284c7); margin-right:4px;">
+                            🔍 Xem
+                        </button>
+                        <button class="btn-primary btn-delete-student" data-studentid="${escapeHtml(s.id)}" data-studentname="${escapeHtml(s.name)}" style="font-size:0.75rem; padding:4px 8px; background:linear-gradient(135deg, #ef4444, #b91c1c);" title="Xóa sinh viên này khỏi hệ thống và Cloud">
+                            🗑️ Xóa
                         </button>
                     </td>
                 </tr>
@@ -1336,6 +1363,42 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.addEventListener('click', (e) => {
                 const sId = e.currentTarget.getAttribute('data-studentid');
                 openStudentDetailModal(sId);
+            });
+        });
+
+        container.querySelectorAll('.btn-delete-student').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const sId = e.currentTarget.getAttribute('data-studentid');
+                const sName = e.currentTarget.getAttribute('data-studentname') || sId;
+                if (!confirm(`Thầy có chắc chắn muốn xóa sinh viên: "${sName}" (MSV: ${sId}) khỏi hệ thống và Cloud Database?`)) {
+                    return;
+                }
+
+                // 1. Remove from local storage
+                let allLocal = JSON.parse(localStorage.getItem('fpga_all_submissions') || '{}');
+                delete allLocal[sId];
+                localStorage.setItem('fpga_all_submissions', JSON.stringify(allLocal));
+
+                // 2. Remove from Cloud Database
+                const cloudUrl = getCloudDbUrl();
+                if (cloudUrl) {
+                    try {
+                        const sIdEncoded = encodeURIComponent(sId);
+                        await fetch(`${cloudUrl}/submissions/${sIdEncoded}.json`, { 
+                            method: 'DELETE', 
+                            signal: AbortSignal.timeout(4000) 
+                        });
+                        await fetch(`${cloudUrl}/students/${sIdEncoded}.json`, { 
+                            method: 'DELETE', 
+                            signal: AbortSignal.timeout(4000) 
+                        });
+                    } catch (err) {
+                        console.warn('Lỗi xóa Cloud:', err);
+                    }
+                }
+
+                alert(`✅ Đã xóa sinh viên "${sName}" thành công!`);
+                renderTeacherStudentDashboard(true);
             });
         });
     }
@@ -1561,6 +1624,42 @@ document.addEventListener('DOMContentLoaded', () => {
             selectAuto.addEventListener('change', startAutoRefreshLoop);
             startAutoRefreshLoop();
         }
+
+        // Clear all test students
+        const btnClearAll = document.getElementById('btnClearAllTestData');
+        if (btnClearAll) {
+            btnClearAll.addEventListener('click', async () => {
+                if (!confirm('⚠️ CẢNH BÁO: Thầy có chắc chắn muốn XOÁ TOÀN BỘ dữ liệu sinh viên test trên máy và Cloud Database để chuẩn bị cho lớp học mới?')) {
+                    return;
+                }
+                if (!confirm('Xác nhận lần 2: Hành động này sẽ xoá sạch danh sách sinh viên hiện tại và không thể hoàn tác. Thầy có muốn tiếp tục?')) {
+                    return;
+                }
+
+                // 1. Clear local submissions
+                localStorage.removeItem('fpga_all_submissions');
+
+                // 2. Clear Cloud Database
+                const cloudUrl = getCloudDbUrl();
+                if (cloudUrl) {
+                    try {
+                        await fetch(`${cloudUrl}/submissions.json`, { 
+                            method: 'DELETE', 
+                            signal: AbortSignal.timeout(5000) 
+                        });
+                        await fetch(`${cloudUrl}/students.json`, { 
+                            method: 'DELETE', 
+                            signal: AbortSignal.timeout(5000) 
+                        });
+                    } catch (err) {
+                        console.warn('Lỗi xóa Cloud:', err);
+                    }
+                }
+
+                alert('✅ Đã xoá sạch toàn bộ dữ liệu sinh viên test! Cơ sở dữ liệu hiện đã sẵn sàng cho lớp học mới.');
+                renderTeacherStudentDashboard(true);
+            });
+        }
     }
 
     // ----------------------------------------------------
@@ -1622,6 +1721,27 @@ document.addEventListener('DOMContentLoaded', () => {
             badge.addEventListener('click', () => {
                 syncAllStudentProgressToCloud();
             });
+        }
+    }
+
+    async function checkCloudStatusOnStartup() {
+        const cloudUrl = getCloudDbUrl();
+        if (!cloudUrl) {
+            updateCloudStatusBadge('error', '⚠️ Chưa cấu hình Cloud');
+            return;
+        }
+        try {
+            const r = await fetch(`${cloudUrl}/.json?shallow=true`, {
+                cache: 'no-store',
+                signal: AbortSignal.timeout(3500)
+            });
+            if (r.ok) {
+                updateCloudStatusBadge('connected', '☁️ Cloud: Đã kết nối');
+            } else {
+                updateCloudStatusBadge('error', `⚠️ Cloud lỗi (${r.status})`);
+            }
+        } catch (_) {
+            updateCloudStatusBadge('error', '⚠️ Mất kết nối Cloud');
         }
     }
 
