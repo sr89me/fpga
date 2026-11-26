@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Thực hành Lập trình nhúng trên FPGA</title>
     <!-- Version timestamp for cache-busting -->
-    <link rel="stylesheet" href="static/css/styles.css?v=20261126_v9">
+    <link rel="stylesheet" href="static/css/styles.css?v=20261126_v10">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
@@ -83,7 +83,7 @@
             <button class="nav-tab" data-target="solutions" style="color:var(--accent-amber);">🔑 Đáp Án (Giảng Viên)</button>
         </nav>
 
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <div class="header-actions" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <span id="cloudStatusBadge" class="badge badge-medium" style="font-size:0.75rem; padding:5px 9px; cursor:pointer;" title="Trạng thái kết nối Cloud Database (Nhấn để thử đồng bộ)">☁️ Cloud: Đang kết nối...</span>
             <button id="btnStudentExportJson" class="btn-filter" style="padding:0.45rem 0.75rem; font-size:0.8rem; background:#0f766e; color:#fff;" title="Tải file JSON toàn bộ bài làm để nộp dự phòng">💾 Tải Bài Làm (JSON)</button>
             <button id="btnPrintPdfReport" class="btn-primary" style="background:linear-gradient(135deg, var(--accent-amber), #d97706); padding:0.45rem 0.9rem; font-size:0.8rem; width:auto;">
@@ -105,6 +105,19 @@
 
         <!-- TAB 1: PHÒNG THÍ NGHIỆM VIRTUAL IDE (3-COLUMN WORKSPACE) -->
         <section id="workspace" class="tab-content active">
+            <!-- Mobile Quick Lab Selector Bar (Visible only on mobile/tablet) -->
+            <div class="mobile-lab-picker-bar" id="mobileLabPickerBar">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <label for="mobileLabSelect" style="font-weight:700; font-size:0.875rem; color:#1d4ed8; display:flex; align-items:center; gap:6px;">
+                        <span>📖</span> <strong>Chọn nhanh bài thực hành:</strong>
+                    </label>
+                    <span id="mobileCompletedBadge" class="badge badge-easy" style="font-size:0.75rem;">0/35 bài</span>
+                </div>
+                <select id="mobileLabSelect" class="form-select mobile-lab-select">
+                    <!-- Populated dynamically in app.js -->
+                </select>
+            </div>
+
             <div class="workspace-layout">
 
                 <!-- Left Sidebar: Exercise Selector List (35 Labs) -->
@@ -469,12 +482,18 @@
     </div>
 
     <!-- JS SCRIPTS WITH CACHE-BUSTING TIMESTAMP -->
-    <script src="static/js/tutorials.js?v=20261126_v9"></script>
-    <script src="static/js/exercises.js?v=20261126_v9"></script>
-    <script src="static/js/pins.js?v=20261126_v9"></script>
-    <script src="static/js/simulator.js?v=20261126_v9"></script>
-    <script src="static/js/waveform.js?v=20261126_v9"></script>
-    <script src="static/js/ai_grader.js?v=20261126_v9"></script>
-    <script src="static/js/app.js?v=20261126_v9"></script>
+    <script src="static/js/tutorials.js?v=20261126_v10"></script>
+    <script src="static/js/exercises.js?v=20261126_v10"></script>
+    <script src="static/js/pins.js?v=20261126_v10"></script>
+    <script src="static/js/simulator.js?v=20261126_v10"></script>
+    <script src="static/js/waveform.js?v=20261126_v10"></script>
+    <script src="static/js/ai_grader.js?v=20261126_v10"></script>
+    <script src="static/js/app.js?v=20261126_v10"></script>
+
+    <!-- MOBILE FLOATING ACTION BAR FOR EASY ONE-TAP SIMULATION & SUBMISSION -->
+    <div id="mobileStickyActionBar" class="mobile-sticky-actions">
+        <button id="btnStickyRunSim" class="btn-sticky-sim">▶ Chạy Mô Phỏng</button>
+        <button id="btnStickySubmitLab" class="btn-sticky-submit">✓ Nộp Bài (Cloud)</button>
+    </div>
 </body>
 </html>
