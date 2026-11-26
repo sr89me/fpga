@@ -111,6 +111,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (targetTabId === 'solutions') {
             renderTeacherStudentDashboard();
         }
+
+        const stickyBar = document.getElementById('mobileStickyActionBar');
+        if (stickyBar) {
+            stickyBar.style.display = (targetTabId === 'workspace') ? 'flex' : 'none';
+        }
     };
 
     // Global helper to open lab by ID
@@ -246,6 +251,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         sidebarList.innerHTML = html;
+
+        const mobSelect = document.getElementById('mobileLabSelect');
+        const mobBadge = document.getElementById('mobileCompletedBadge');
+        if (mobBadge) mobBadge.textContent = `${doneCount}/${totalLabs} bài`;
+
+        if (mobSelect) {
+            let optHtml = '';
+            FPGA_EXERCISES.forEach(lab => {
+                const isDone = state.completedLabs.includes(lab.id);
+                const prefix = lab.id < 10 ? '0' + lab.id : lab.id;
+                optHtml += `<option value="${lab.id}" ${state.currentLab && state.currentLab.id === lab.id ? 'selected' : ''}>
+                    ${prefix}. ${lab.title} ${isDone ? '✓ (Xong)' : ''}
+                </option>`;
+            });
+            mobSelect.innerHTML = optHtml;
+
+            if (!mobSelect.dataset.hasListener) {
+                mobSelect.dataset.hasListener = 'true';
+                mobSelect.addEventListener('change', (e) => {
+                    window.openLabById(e.target.value);
+                });
+            }
+        }
     }
 
     // ----------------------------------------------------
@@ -402,6 +430,8 @@ document.addEventListener('DOMContentLoaded', () => {
         simulatorEngine.reset();
 
         document.getElementById('wsLabTitle').textContent = lab.title;
+        const mobSelect = document.getElementById('mobileLabSelect');
+        if (mobSelect) mobSelect.value = lab.id;
         document.getElementById('wsLabCategory').textContent = lab.categoryName + " | " + lab.difficulty;
         document.getElementById('wsLabDesc').innerHTML = lab.desc;
 
@@ -721,6 +751,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('btnRunSim')?.addEventListener('click', () => {
         runSimulationEval();
+    });
+
+    document.getElementById('btnStickyRunSim')?.addEventListener('click', () => {
+        document.getElementById('btnRunSim')?.click();
+    });
+
+    document.getElementById('btnStickySubmitLab')?.addEventListener('click', () => {
+        document.getElementById('btnSubmitLab')?.click();
     });
 
     // ----------------------------------------------------
@@ -1202,12 +1240,32 @@ document.addEventListener('DOMContentLoaded', () => {
                     cloudDiag = { status: String(resp.status), message: 'Bị khóa quyền' };
                 } else if (resp.ok) {
                     const cloudData = await resp.json();
-                    if (cloudData) {
+                    if (cloudData && typeof cloudData === 'object') {
                         for (let sId in cloudData) {
-                            const sLabs = cloudData[sId];
+                            const rawLabs = cloudData[sId];
+                            if (!rawLabs) continue;
+
+                            // Normalize labs: handle both arrays (Firebase sparse array) and objects
+                            const validLabs = {};
+                            if (Array.isArray(rawLabs)) {
+                                rawLabs.forEach((item, idx) => {
+                                    if (item && typeof item === 'object') {
+                                        const labId = item.labId || idx;
+                                        validLabs[labId] = item;
+                                    }
+                                });
+                            } else if (typeof rawLabs === 'object') {
+                                for (let k in rawLabs) {
+                                    const item = rawLabs[k];
+                                    if (item && typeof item === 'object') {
+                                        const labId = item.labId || k;
+                                        validLabs[labId] = item;
+                                    }
+                                }
+                            }
+
+                            const sample = Object.values(validLabs)[0] || {};
                             if (!studentMap[sId]) {
-                                const firstLabKey = Object.keys(sLabs)[0];
-                                const sample = sLabs[firstLabKey] || {};
                                 studentMap[sId] = {
                                     info: {
                                         id: sample.studentId || sId,
@@ -1217,8 +1275,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                     labs: {}
                                 };
                             }
-                            for (let lId in sLabs) {
-                                studentMap[sId].labs[lId] = sLabs[lId];
+                            for (let lId in validLabs) {
+                                studentMap[sId].labs[lId] = validLabs[lId];
                             }
                         }
                         cloudDiag = { status: 'ok', count: Object.keys(studentMap).length };
@@ -1226,17 +1284,29 @@ document.addEventListener('DOMContentLoaded', () => {
                         cloudDiag = { status: 'empty', count: Object.keys(studentMap).length };
                     }
 
-                    // Optional: Fetch students metadata for lastActive and updated profile
+                    // Optional: Fetch students metadata for lastActive and updated profile (and include registered students with 0 labs)
                     try {
                         const stuResp = await fetchWithTimeout(`${cloudUrl}/students.json`, { cache: 'no-store', timeout: 2500 });
                         if (stuResp.ok) {
                             const stuData = await stuResp.json();
-                            if (stuData) {
+                            if (stuData && typeof stuData === 'object') {
                                 for (let sId in stuData) {
-                                    if (studentMap[sId] && studentMap[sId].info) {
-                                        if (stuData[sId].lastActive) studentMap[sId].info.lastActive = stuData[sId].lastActive;
-                                        if (stuData[sId].name) studentMap[sId].info.name = stuData[sId].name;
-                                        if (stuData[sId].class) studentMap[sId].info.class = stuData[sId].class;
+                                    const stu = stuData[sId];
+                                    if (!stu || typeof stu !== 'object') continue;
+                                    if (!studentMap[sId]) {
+                                        studentMap[sId] = {
+                                            info: {
+                                                id: stu.id || sId,
+                                                name: stu.name || `Sinh viên ${sId}`,
+                                                class: stu.class || 'N/A',
+                                                lastActive: stu.lastActive || null
+                                            },
+                                            labs: {}
+                                        };
+                                    } else {
+                                        if (stu.lastActive) studentMap[sId].info.lastActive = stu.lastActive;
+                                        if (stu.name) studentMap[sId].info.name = stu.name;
+                                        if (stu.class) studentMap[sId].info.class = stu.class;
                                     }
                                 }
                             }
@@ -1289,22 +1359,22 @@ document.addEventListener('DOMContentLoaded', () => {
         let rowsHtml = '';
         studentList.forEach((s, idx) => {
             const sData = studentMap[s.id] || { labs: {} };
-            const submittedLabs = Object.values(sData.labs || {});
+            const submittedLabs = Object.values(sData.labs || {}).filter(l => l && typeof l === 'object');
             const submittedCount = submittedLabs.length;
             
             let totalScore = 0;
             submittedLabs.forEach(l => {
-                if (l.grade && l.grade.score !== undefined) totalScore += l.grade.score;
+                if (l.grade && l.grade.score !== undefined) totalScore += Number(l.grade.score) || 0;
             });
             const avgScore = submittedCount > 0 ? Math.round(totalScore / submittedCount) : 0;
 
             let lastTimeStr = 'Chưa có';
             if (s.lastActive) {
-                lastTimeStr = new Date(s.lastActive).toLocaleString('vi-VN');
+                try { lastTimeStr = new Date(s.lastActive).toLocaleString('vi-VN'); } catch (_) {}
             } else if (submittedCount > 0) {
                 const dates = submittedLabs.map(l => l.submittedAt).filter(Boolean);
                 if (dates.length > 0) {
-                    lastTimeStr = new Date(dates.sort().pop()).toLocaleString('vi-VN');
+                    try { lastTimeStr = new Date(dates.sort().pop()).toLocaleString('vi-VN'); } catch (_) {}
                 }
             }
 
@@ -1536,13 +1606,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 students.forEach((s, idx) => {
                     const sData = cachedCloudSubmissions[s.id] || { labs: {} };
-                    const labs = sData.labs || {};
-                    const submittedLabs = Object.values(labs);
+                    const rawLabs = sData.labs || {};
+                    const submittedLabs = Object.values(rawLabs).filter(l => l && typeof l === 'object');
                     const count = submittedLabs.length;
 
                     let totalScore = 0;
                     submittedLabs.forEach(l => {
-                        if (l.grade && l.grade.score !== undefined) totalScore += l.grade.score;
+                        if (l.grade && l.grade.score !== undefined) totalScore += Number(l.grade.score) || 0;
                     });
                     const avgScore = count > 0 ? Math.round(totalScore / count) : 0;
 
@@ -1744,8 +1814,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const info = sData.info || {};
-        const labs = sData.labs || {};
-        const submittedLabIds = Object.keys(labs).map(Number).sort((a,b)=>a-b);
+        const rawLabs = sData.labs || {};
+        const validLabs = {};
+        for (let k in rawLabs) {
+            if (rawLabs[k] && typeof rawLabs[k] === 'object') {
+                validLabs[k] = rawLabs[k];
+            }
+        }
+        const submittedLabIds = Object.keys(validLabs).map(Number).filter(Boolean).sort((a,b)=>a-b);
 
         titleElem.textContent = `Bài Làm Sinh Viên: ${info.name} (MSV: ${info.id})`;
         subTitleElem.textContent = `Lớp khóa học: ${info.class || 'N/A'} | Đã nộp ${submittedLabIds.length}/35 bài thực hành`;
@@ -1756,7 +1832,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             submittedLabIds.forEach(lId => {
                 const labObj = FPGA_EXERCISES.find(e => e.id === lId) || { title: `Bài ${lId}`, desc: '', solution: '' };
-                const sub = labs[lId];
+                const sub = validLabs[lId] || {};
                 const grade = sub.grade || null;
 
                 let gradeBlock = '';
